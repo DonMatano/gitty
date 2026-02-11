@@ -51,6 +51,8 @@ const ObjectParser = struct {
                     defer alloc.free(content);
                     _ = try obj_dir.readFile(entry.name, content);
                     std.debug.print("content {s}\n", .{content});
+                    _ = try decompressZipContent(content, alloc);
+
                     // f.rea
                     //
                     // var f_reader = f.reader(&buf);
@@ -68,6 +70,22 @@ const ObjectParser = struct {
         }
     }
 };
+fn decompressZipContent(compressed_content: []const u8, alloc: Alloc) ![]const u8 {
+    var reader: std.Io.Reader = .fixed(compressed_content);
+    var writer: std.Io.Writer.Allocating = .init(alloc);
+    defer writer.deinit();
+    var decompress = std.compress.flate.Decompress.init(&reader, .zlib, &.{});
+    _ = try decompress.reader.streamRemaining(&writer.writer);
+    const decompressed_content = writer.written();
+    std.debug.print("decomp content: {s}\n", .{decompressed_content});
+    return decompressed_content;
+    // var in: std.Io.Reader = .fixed(compressed);
+    // var aw: std.Io.Writer.Allocating = .init(testing.allocator);
+    // defer aw.deinit();
+    //
+    // var decompress: Decompress = .init(&in, container, &.{});
+    // const decompressed_len = try decompress.reader.streamRemaining(&aw.writer);
+}
 
 // test "ensure empty " {
 //     _ = try ObjectParser.init("testGit/emptyGit/.git", testing.allocator);
