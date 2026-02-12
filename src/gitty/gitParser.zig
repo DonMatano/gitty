@@ -67,7 +67,8 @@ const ObjectParser = struct {
                     const decompressed_content = try decompressZipContent(content, alloc);
                     defer alloc.free(decompressed_content);
                     std.debug.print("decomp content out: {s}\n", .{decompressed_content});
-                    try parseDecompressedObject(decompressed_content);
+                    const obj = try parseDecompressedObject(decompressed_content);
+                    std.debug.print("decomp obj: {}\n", .{obj});
                 },
             }
         }
@@ -88,7 +89,7 @@ fn decompressZipContent(compressed_content: []const u8, alloc: Alloc) ![]const u
     return new_string;
 }
 
-fn parseDecompressedObject(decompressed_object: []const u8) !void {
+fn parseDecompressedObject(decompressed_object: []const u8) !Object {
     std.debug.print("decomp in content: {s}\n", .{decompressed_object});
     for (decompressed_object, 0..) |ch, i| {
         std.debug.print("\t\tdecomp in char: {c} = {d} - ind {d}\n", .{ ch, ch, i });
@@ -98,10 +99,16 @@ fn parseDecompressedObject(decompressed_object: []const u8) !void {
     const null_ind = std.mem.indexOfScalar(u8, decompressed_object, 0) orelse return error.InvalidObject;
     std.debug.print("null ind {d}\n", .{null_ind});
 
-    const obj_type = decompressed_object[0..first_space_ind];
-    const size = decompressed_object[(first_space_ind + 1)..null_ind];
+    const obj_type = std.meta.stringToEnum(ObjectType, decompressed_object[0..first_space_ind]) orelse return error.InvalidObjectType;
+    const size = try std.fmt.parseInt(usize, decompressed_object[(first_space_ind + 1)..null_ind], 10);
 
-    std.debug.print("object found {s}, size {s}\n", .{ obj_type, size });
+    const content = decompressed_object[null_ind + 1 .. null_ind + 1 + size];
+    try testing.expectEqual(size, content.len);
+    return Object{
+        .content = content,
+        .size = size,
+        .type = obj_type,
+    };
 }
 
 // test "ensure empty " {
