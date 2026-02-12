@@ -115,5 +115,5 @@ fn parseDecompressedObject(decompressed_object: []const u8) !Object {
 //     _ = try ObjectParser.init("testGit/emptyGit/.git", testing.allocator);
 // }
 test "ensure single commit " {
-    _ = try ObjectParser.init("testGit/singleCommit/.git", testing.allocator);
+    _ = try ObjectParser.init("testGit/singleCommit/git", testing.allocator);
 }
