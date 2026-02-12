@@ -1,2 +1,2 @@
-const gitParser = @import("gitParser.zig");
+pub const gitParser = @import("gitParser.zig");
 

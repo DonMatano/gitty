@@ -1,6 +1,19 @@
 const std = @import("std");
 const testing = std.testing;
 const Alloc = std.mem.Allocator;
+
+const ObjectType = enum {
+    blob,
+    commit,
+    tag,
+    tree,
+};
+
+const Object = struct {
+    type: ObjectType,
+    size: usize,
+    content: []const u8,
+};
 const ObjectParser = struct {
     alloc: Alloc,
     tree: []u8,
@@ -51,20 +64,10 @@ const ObjectParser = struct {
                     defer alloc.free(content);
                     _ = try obj_dir.readFile(entry.name, content);
                     std.debug.print("content {s}\n", .{content});
-                    _ = try decompressZipContent(content, alloc);
-
-                    // f.rea
-                    //
-                    // var f_reader = f.reader(&buf);
-                    // var reader = &f_reader.interface;
-                    // while (reader.readSliceAll(&buf)) {
-                    //     try writer.print("{s}", .{buf});
-                    // } else |err| {
-                    //     if (err != error.EndOfStream) {
-                    //         return err;
-                    //     }
-                    // }
-                    // try writer.flush();
+                    const decompressed_content = try decompressZipContent(content, alloc);
+                    defer alloc.free(decompressed_content);
+                    std.debug.print("decomp content out: {s}\n", .{decompressed_content});
+                    try parseDecompressedObject(decompressed_content);
                 },
             }
         }
@@ -75,16 +78,30 @@ fn decompressZipContent(compressed_content: []const u8, alloc: Alloc) ![]const u
     var writer: std.Io.Writer.Allocating = .init(alloc);
     defer writer.deinit();
     var decompress = std.compress.flate.Decompress.init(&reader, .zlib, &.{});
+    const header = decompress.container_metadata.container().headerSize();
+    std.debug.print("header: {d}\n", .{header});
     _ = try decompress.reader.streamRemaining(&writer.writer);
     const decompressed_content = writer.written();
     std.debug.print("decomp content: {s}\n", .{decompressed_content});
-    return decompressed_content;
-    // var in: std.Io.Reader = .fixed(compressed);
-    // var aw: std.Io.Writer.Allocating = .init(testing.allocator);
-    // defer aw.deinit();
-    //
-    // var decompress: Decompress = .init(&in, container, &.{});
-    // const decompressed_len = try decompress.reader.streamRemaining(&aw.writer);
+    const new_string = try alloc.alloc(u8, decompressed_content.len);
+    @memcpy(new_string, decompressed_content);
+    return new_string;
+}
+
+fn parseDecompressedObject(decompressed_object: []const u8) !void {
+    std.debug.print("decomp in content: {s}\n", .{decompressed_object});
+    for (decompressed_object, 0..) |ch, i| {
+        std.debug.print("\t\tdecomp in char: {c} = {d} - ind {d}\n", .{ ch, ch, i });
+    }
+    const first_space_ind = std.mem.indexOfScalar(u8, decompressed_object, ' ') orelse return error.InvalidObject;
+    std.debug.print("first space {d}\n", .{first_space_ind});
+    const null_ind = std.mem.indexOfScalar(u8, decompressed_object, 0) orelse return error.InvalidObject;
+    std.debug.print("null ind {d}\n", .{null_ind});
+
+    const obj_type = decompressed_object[0..first_space_ind];
+    const size = decompressed_object[(first_space_ind + 1)..null_ind];
+
+    std.debug.print("object found {s}, size {s}\n", .{ obj_type, size });
 }
 
 // test "ensure empty " {
