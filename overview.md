@@ -1,5 +1,7 @@
 # Gitty Project Overview
 
+**THIS DOC IS MADE TO BE READ BY AN AI AGENT**
+
 `gitty` is a Work-In-Progress (WIP) git-core package written in Zig 0.15.2. It focuses on parsing the `.git` folder and its underlying object storage directly.
 
 ## Core Objectives

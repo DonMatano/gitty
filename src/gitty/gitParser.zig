@@ -1,6 +1,7 @@
 const std = @import("std");
 const testing = std.testing;
 const Alloc = std.mem.Allocator;
+const log = std.log.scoped(.gittyParse);
 
 const ObjectIn = enum {
     blob,
@@ -88,7 +89,8 @@ const ObjectParser = struct {
                     const decompressed_content = try decompressZipContent(content, alloc);
                     defer alloc.free(decompressed_content);
                     std.debug.print("decomp content out: {s}\n", .{decompressed_content});
-                    const obj = try parseDecompressedObject(decompressed_content);
+                    var parseReader: std.Io.Reader = .fixed(decompressed_content);
+                    const obj = try parseDecompressedObject(&parseReader);
                     std.debug.print("decomp obj: {}\n", .{obj});
                     switch (obj) {
                         .blob => std.debug.print("\n\n\ndecomp obj blob content: {}\n", .{obj.blob}),
@@ -113,41 +115,64 @@ fn decompressZipContent(compressed_content: []const u8, alloc: Alloc) ![]const u
     return new_string;
 }
 
-fn parseDecompressedObject(decompressed_object: []const u8) !Object {
-    const first_space_ind = std.mem.indexOfScalar(u8, decompressed_object, ' ') orelse return error.InvalidObject;
+fn parseDecompressedObject(reader: *std.Io.Reader) !Object {
+    const obj_type_string = reader.takeDelimiter(' ') catch |err| {
+        log.err("Failed to get type: {}", .{err});
+        return error.InvalidObjectType;
+    } orelse return error.MissingObjectType;
 
-    const obj_type = std.meta.stringToEnum(ObjectIn, decompressed_object[0..first_space_ind]) orelse return error.InvalidObjectType;
-    // try testing.expectEqual(size, content.len);
+    const obj_type = std.meta.stringToEnum(ObjectIn, obj_type_string) orelse return error.InvalidObjectType;
     const obj: Object = switch (obj_type) {
         .blob => {
-            const null_ind = std.mem.indexOfScalar(u8, decompressed_object, 0) orelse return error.InvalidObject;
-            const size = try std.fmt.parseInt(usize, decompressed_object[(first_space_ind + 1)..null_ind], 10);
+            const size_string = reader.takeDelimiter(0) catch |err| {
+                log.err("Failed to get size: {}", .{err});
+                return error.InvalidObjectSize;
+            } orelse return error.MissingObjectSize;
+            const size = try std.fmt.parseInt(usize, size_string, 10);
 
-            const content = decompressed_object[null_ind + 1 .. null_ind + 1 + size];
+            const content = reader.take(size) catch |err| {
+                log.err("Failed to get content: {}", .{err});
+                return error.InvalidObjectContent;
+            };
+            try testing.expectEqual(size, content.len);
             return Object{
                 .blob = Blob{ .size = size, .content = content },
             };
         },
         .tree => {
-            const tree = try parseTreeObject(decompressed_object[first_space_ind + 1 .. decompressed_object.len]);
+            const tree = try parseTreeObject(reader);
 
             // const content = decompressed_object[null_ind + 1 .. null_ind + 1 + size];
             return Object{ .tree = tree };
         },
         .tag => {
-            const null_ind = std.mem.indexOfScalar(u8, decompressed_object, 0) orelse return error.InvalidObject;
-            const size = try std.fmt.parseInt(usize, decompressed_object[(first_space_ind + 1)..null_ind], 10);
+            const size_string = reader.takeDelimiter(0) catch |err| {
+                log.err("Failed to get size: {}", .{err});
+                return error.InvalidObjectSize;
+            } orelse return error.MissingObjectSize;
+            const size = try std.fmt.parseInt(usize, size_string, 10);
 
-            const content = decompressed_object[null_ind + 1 .. null_ind + 1 + size];
+            const content = reader.take(size) catch |err| {
+                log.err("Failed to get content: {}", .{err});
+                return error.InvalidObjectContent;
+            };
+            try testing.expectEqual(size, content.len);
             return Object{
                 .tag = Tag{ .size = size, .content = content },
             };
         },
         .commit => {
-            const null_ind = std.mem.indexOfScalar(u8, decompressed_object, 0) orelse return error.InvalidObject;
-            const size = try std.fmt.parseInt(usize, decompressed_object[(first_space_ind + 1)..null_ind], 10);
+            const size_string = reader.takeDelimiter(0) catch |err| {
+                log.err("Failed to get size: {}", .{err});
+                return error.InvalidObjectSize;
+            } orelse return error.MissingObjectSize;
+            const size = try std.fmt.parseInt(usize, size_string, 10);
 
-            const content = decompressed_object[null_ind + 1 .. null_ind + 1 + size];
+            const content = reader.take(size) catch |err| {
+                log.err("Failed to get content: {}", .{err});
+                return error.InvalidObjectContent;
+            };
+            try testing.expectEqual(size, content.len);
             return Object{
                 .commit = Commit{ .size = size, .content = content },
             };
@@ -156,19 +181,28 @@ fn parseDecompressedObject(decompressed_object: []const u8) !Object {
     return obj;
 }
 
-fn parseTreeObject(decompressed_object: []const u8) !Tree {
-    const first_null_ind = std.mem.indexOfScalar(u8, decompressed_object, 0) orelse return error.InvalidObject;
-    const size = try std.fmt.parseInt(usize, decompressed_object[0..first_null_ind], 10);
-    var temp_ind = std.mem.indexOfScalar(u8, decompressed_object[first_null_ind + 1 .. decompressed_object.len], ' ') orelse return error.InvalidObject;
-    const mode_ind_end = temp_ind + first_null_ind + 1;
-    const mode = decompressed_object[first_null_ind + 1 .. mode_ind_end];
+fn parseTreeObject(reader: *std.Io.Reader) !Tree {
+    const size_string = reader.takeDelimiter(0) catch |err| {
+        log.err("Failed to get size: {}", .{err});
+        return error.InvalidObjectSize;
+    } orelse return error.MissingObjectSize;
+    const size = try std.fmt.parseInt(usize, size_string, 10);
+    const mode = reader.takeDelimiter(' ') catch |err| {
+        log.err("Failed to get mode: {}", .{err});
+        return error.InvalidObjectMode;
+    } orelse return error.MissingObjectMode;
     std.debug.print(" tree mode: {s} \n", .{mode});
-    temp_ind = std.mem.indexOfScalar(u8, decompressed_object[mode_ind_end + 1 .. decompressed_object.len], 0) orelse return error.InvalidObject;
-    const file_name_ind_end = temp_ind + mode_ind_end + 1;
-    const file_name = decompressed_object[mode_ind_end + 1 .. file_name_ind_end];
+    const file_name = reader.takeDelimiter(0) catch |err| {
+        log.err("Failed to get file name: {}", .{err});
+        return error.InvalidObjectFileName;
+    } orelse return error.MissingObjectFileName;
     std.debug.print(" tree file name: {s} \n", .{file_name});
-    const encrypted_binary = decompressed_object[file_name_ind_end + 1 .. file_name_ind_end + 21];
-    try testing.expectEqual(20, encrypted_binary.len);
+    var encrypted_binary: [20]u8 = undefined;
+    reader.readSliceAll(&encrypted_binary) catch |err| {
+        log.err("Failed to get encrypted binary: {}", .{err});
+        return error.InvalidObjectEncrypted;
+    };
+    try std.testing.expect(encrypted_binary.len == 20);
     std.debug.print(" tree binary : {s} \n", .{encrypted_binary});
     for (encrypted_binary) |c| {
         std.debug.print(" {c}, ", .{c});
@@ -178,7 +212,7 @@ fn parseTreeObject(decompressed_object: []const u8) !Tree {
         .size = size,
         .file_name = file_name,
         .file_mode = mode,
-        .binary_sha = encrypted_binary,
+        .binary_sha = "",
     };
 }
 
