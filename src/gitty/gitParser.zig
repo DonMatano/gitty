@@ -204,16 +204,12 @@ fn parseTreeObject(reader: *std.Io.Reader) !Tree {
     };
     try std.testing.expect(encrypted_binary.len == 20);
     std.debug.print(" tree binary : {s} \n", .{encrypted_binary});
-    for (encrypted_binary) |c| {
-        std.debug.print(" {c}, ", .{c});
-    }
-    std.debug.print("\n", .{});
-    return Tree{
-        .size = size,
-        .file_name = file_name,
-        .file_mode = mode,
-        .binary_sha = "",
-    };
+
+    var decrypted_binary: [40]u8 = undefined;
+    decrypted_binary = std.fmt.bytesToHex(encrypted_binary, .lower);
+    // std.crypto.hash.Sha1.hash(&encrypted_binary, &decrypted_binary, .{});
+    std.debug.print("decrypted bin {s}\n", .{decrypted_binary});
+    return Tree{ .size = size, .file_name = file_name, .file_mode = mode, .binary_sha = "" };
 }
 
 // test "ensure empty " {
