@@ -75,41 +75,41 @@ const ObjectParser = struct {
         try iterateDir(self.obj_dir.*, self.arena.allocator(), handleFile);
     }
 
-    // fn iterateDir(self: ObjectParser) !void {
-    //     var it = self.obj_dir.iterate();
-    //     while (try it.next()) |entry| {
-    //         std.debug.print("{s} - {s} \n", .{ entry.name, @tagName(entry.kind) });
-    //         switch (entry.kind) {
-    //             .directory => {
-    //                 var dir = try self.obj_dir.openDir(entry.name, .{ .iterate = true });
-    //                 defer dir.close();
-    //                 try iterateDir(&dir, self.alloc);
-    //             },
-    //             else => {
-    //                 var f = try self.obj_dir.openFile(entry.name, .{});
-    //                 defer f.close();
-    //                 const stat = try f.stat();
-    //                 const size = stat.size;
-    //                 const content = try self.alloc.alloc(u8, size);
-    //                 defer self.alloc.free(content);
-    //                 _ = try self.obj_dir.readFile(entry.name, content);
-    //                 std.debug.print("content {s}\n", .{content});
-    //                 const decompressed_content = try decompressZipContent(content, self.alloc);
-    //                 defer self.alloc.free(decompressed_content);
-    //                 std.debug.print("decomp content out: {s}\n", .{decompressed_content});
-    //                 var parseReader: std.Io.Reader = .fixed(decompressed_content);
-    //                 const obj = try parseDecompressedObject(&parseReader);
-    //                 std.debug.print("decomp obj: {}\n", .{obj});
-    //                 switch (obj) {
-    //                     .blob => std.debug.print("\n\n\ndecomp obj blob content: {}\n", .{obj.blob}),
-    //                     .commit => std.debug.print("\n\n\ndecomp obj commit content: {}\n", .{obj.commit}),
-    //                     .tag => std.debug.print("\n\n\ndecomp obj tag content: {}\n", .{obj.tag}),
-    //                     .tree => std.debug.print("\n\n\ndecomp obj tree content: {}\n", .{obj.tree}),
-    //                 }
-    //             },
-    //         }
-    //     }
-    // }
+    fn iterateDir(self: ObjectParser) !void {
+        var it = self.obj_dir.iterate();
+        while (try it.next()) |entry| {
+            std.debug.print("{s} - {s} \n", .{ entry.name, @tagName(entry.kind) });
+            switch (entry.kind) {
+                .directory => {
+                    var dir = try self.obj_dir.openDir(entry.name, .{ .iterate = true });
+                    defer dir.close();
+                    try iterateDir(&dir, self.alloc);
+                },
+                else => {
+                    var f = try self.obj_dir.openFile(entry.name, .{});
+                    defer f.close();
+                    const stat = try f.stat();
+                    const size = stat.size;
+                    const content = try self.alloc.alloc(u8, size);
+                    defer self.alloc.free(content);
+                    _ = try self.obj_dir.readFile(entry.name, content);
+                    std.debug.print("content {s}\n", .{content});
+                    const decompressed_content = try decompressZipContent(content, self.alloc);
+                    defer self.alloc.free(decompressed_content);
+                    std.debug.print("decomp content out: {s}\n", .{decompressed_content});
+                    var parseReader: std.Io.Reader = .fixed(decompressed_content);
+                    const obj = try parseDecompressedObject(&parseReader);
+                    std.debug.print("decomp obj: {}\n", .{obj});
+                    switch (obj) {
+                        .blob => std.debug.print("\n\n\ndecomp obj blob content: {}\n", .{obj.blob}),
+                        .commit => std.debug.print("\n\n\ndecomp obj commit content: {}\n", .{obj.commit}),
+                        .tag => std.debug.print("\n\n\ndecomp obj tag content: {}\n", .{obj.tag}),
+                        .tree => std.debug.print("\n\n\ndecomp obj tree content: {}\n", .{obj.tree}),
+                    }
+                },
+            }
+        }
+    }
     fn parseDecompressedObject(self: ObjectParser, reader: *std.Io.Reader) !Object {
         const obj_type_string = reader.takeDelimiter(' ') catch |err| {
             log.err("Failed to get type: {}", .{err});
@@ -213,27 +213,6 @@ const ObjectParser = struct {
         return try tree_list.toOwnedSlice(self.alloc);
     }
     fn handleFile(file: *std.fs.File, alloc: Alloc) !void {
-        const stat = try file.stat();
-        const size = stat.size;
-        const content = try alloc.alloc(u8, size);
-        const reader = &file.readerStreaming(content).interface;
-        defer alloc.free(content);
-        const read = try reader.readAlloc(alloc, content.len);
-        defer alloc.free(read);
-        // _ = try self.obj_dir.readFile(entry.name, content);
-        std.debug.print("content {s}\n", .{read});
-        const decompressed_content = try decompressZipContent(read, alloc);
-        defer alloc.free(decompressed_content);
-        std.debug.print("decomp content out: {s}\n", .{decompressed_content});
-        var parseReader: std.Io.Reader = .fixed(decompressed_content);
-        const obj = try parseDecompressedObject(&parseReader);
-        std.debug.print("decomp obj: {}\n", .{obj});
-        switch (obj) {
-            .blob => std.debug.print("\n\n\ndecomp obj blob content: {}\n", .{obj.blob}),
-            .commit => std.debug.print("\n\n\ndecomp obj commit content: {}\n", .{obj.commit}),
-            .tag => std.debug.print("\n\n\ndecomp obj tag content: {}\n", .{obj.tag}),
-            .tree => std.debug.print("\n\n\ndecomp obj tree content: {}\n", .{obj.tree}),
-        }
     }
 };
 fn decompressZipContent(compressed_content: []const u8, alloc: Alloc) ![]const u8 {
