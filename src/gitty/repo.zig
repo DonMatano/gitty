@@ -8,7 +8,7 @@ const Blob = struct {
     size: usize,
     content: std.ArrayList(u8),
     pub fn init(alloc: Alloc, size: usize) !Blob {
-        .{
+        return .{
             .size = size,
             .content = try std.ArrayList(u8).initCapacity(alloc, size),
         };
@@ -28,7 +28,7 @@ const Commit = struct {
     size: usize,
     content: std.ArrayList(u8),
     pub fn init(alloc: Alloc, size: usize) !Commit {
-        .{
+        return .{
             .size = size,
             .content = try std.ArrayList(u8).initCapacity(alloc, size),
         };
@@ -48,7 +48,7 @@ const Tag = struct {
     size: usize,
     content: std.ArrayList(u8),
     pub fn init(alloc: Alloc, size: usize) !Tag {
-        .{
+        return .{
             .size = size,
             .content = try std.ArrayList(u8).initCapacity(alloc, size),
         };
@@ -85,7 +85,7 @@ const TreeContent = struct {
     file_mode: FileType,
     binary_sha: std.ArrayList(u8),
     pub fn init(alloc: Alloc, file_mode: FileType, file_name_size: usize) !TreeContent {
-        .{ .file_mode = file_mode, .file_name = try std.ArrayList(u8).initCapacity(alloc, file_name_size), .binary_sha = try std.ArrayList(u8).initCapacity(alloc, 40) };
+        return .{ .file_mode = file_mode, .file_name = try std.ArrayList(u8).initCapacity(alloc, file_name_size), .binary_sha = try std.ArrayList(u8).initCapacity(alloc, 40) };
     }
     pub fn setFileName(self: *TreeContent, alloc: Alloc, content: []const u8) !void {
         self.file_name.clearRetainingCapacity();
@@ -198,12 +198,12 @@ pub const Repo = struct {
             }
         }
         repo_log.info("stored {f}", .{self.*});
-        std.debug.print("stored {f}", .{self.*});
     }
 
     fn storeObject(self: *Repo, object: Object, hash: []const u8) !void {
         switch (object) {
             .blob => {
+                repo_log.info("storing blob of hash {s}", .{hash});
                 try self.blobs.putNoClobber(hash, object.blob);
             },
             .commit => {
@@ -213,17 +213,29 @@ pub const Repo = struct {
                 repo_log.info("Adding tag not yet handle", .{});
             },
             .tree => {
+                repo_log.info("storing tree of hash {s}", .{hash});
                 try self.trees.putNoClobber(hash, object.tree);
             },
         }
     }
     pub fn format(self: Repo, w: *std.Io.Writer) !void {
+        var trees_key_it = self.trees.keyIterator();
+        while (trees_key_it.next()) |key| {
+            try w.print("tree key: {s}\n", .{key.*});
+        }
         var trees_it = self.trees.iterator();
         try w.print("\nTrees contents\n", .{});
         while (trees_it.next()) |tree| {
+            try w.print("tree sha {s}: \n", .{tree.key_ptr.*});
             for (tree.value_ptr.contents) |content| {
                 try w.print("{f}\n", .{content});
             }
+        }
+        var blobs_it = self.blobs.iterator();
+        try w.print("\nBlobs contents\n", .{});
+        while (blobs_it.next()) |blob| {
+            try w.print("blob sha {s}: ", .{blob.key_ptr.*});
+            try w.print("{s}\n", .{blob.value_ptr.getContent()});
         }
     }
 
@@ -251,9 +263,9 @@ fn parseDecompressedObject(reader: *std.Io.Reader, alloc: Alloc) !Object {
             };
             try testing.expectEqual(size, content.len);
             var arr = try std.ArrayList(u8).initCapacity(alloc, content.len);
-            arr.appendSlice(alloc, content);
-            const blob = try Blob.init(alloc, size);
-            blob.setContent(alloc, content);
+            try arr.appendSlice(alloc, content);
+            var blob = try Blob.init(alloc, size);
+            try blob.setContent(alloc, content);
 
             object = .{
                 .blob = blob,
@@ -274,10 +286,10 @@ fn parseDecompressedObject(reader: *std.Io.Reader, alloc: Alloc) !Object {
                 repo_log.err("Failed to get content: {}", .{err});
                 return error.InvalidObjectContent;
             };
+            var tag = try Tag.init(alloc, size);
+            try tag.setContent(alloc, content);
             try testing.expectEqual(size, content.len);
-            object = .{
-                .tag = Tag{ .size = size, .content = content },
-            };
+            object = .{ .tag = tag };
         },
         .commit => {
             const size_string = reader.takeDelimiter(0) catch |err| {
@@ -290,10 +302,11 @@ fn parseDecompressedObject(reader: *std.Io.Reader, alloc: Alloc) !Object {
                 repo_log.err("Failed to get content: {}", .{err});
                 return error.InvalidObjectContent;
             };
+
+            var commit = try Commit.init(alloc, size);
+            try commit.setContent(alloc, content);
             try testing.expectEqual(size, content.len);
-            object = .{
-                .commit = Commit{ .size = size, .content = content },
-            };
+            object = .{ .commit = commit };
         },
     }
     return object;
@@ -331,9 +344,9 @@ fn parseTreeObject(reader: *std.Io.Reader, alloc: Alloc) !Tree {
         var decrypted_binary: [40]u8 = undefined;
         decrypted_binary = std.fmt.bytesToHex(encrypted_binary, .lower);
         repo_log.debug("decrypted bin {s}\n", .{decrypted_binary});
-        var tree: TreeContent = TreeContent.init(alloc, file_type, file_name.len);
+        var tree: TreeContent = try TreeContent.init(alloc, file_type, file_name.len);
         try tree.setFileName(alloc, file_name);
-        tree.setBinarySha(alloc, decrypted_binary);
+        try tree.setBinarySha(alloc, &decrypted_binary);
         try tree_list.append(alloc, tree);
     }
     return .{ .size = size, .contents = try tree_list.toOwnedSlice(alloc) };
