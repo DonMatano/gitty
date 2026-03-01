@@ -6,15 +6,63 @@ const StringHashMap = std.StringHashMap;
 const repo_log = std.log.scoped(.Repo_Log);
 const Blob = struct {
     size: usize,
-    content: []const u8,
+    content: std.ArrayList(u8),
+    pub fn init(alloc: Alloc, size: usize) !Blob {
+        .{
+            .size = size,
+            .content = try std.ArrayList(u8).initCapacity(alloc, size),
+        };
+    }
+    pub fn setContent(self: *Blob, alloc: Alloc, content: []const u8) !void {
+        self.content.clearRetainingCapacity();
+        try self.content.appendSlice(alloc, content);
+    }
+    pub fn getContent(self: *Blob) []u8 {
+        return self.content.items;
+    }
+    pub fn deinit(self: *Blob, alloc: Alloc) void {
+        self.content.deinit(alloc);
+    }
 };
 const Commit = struct {
     size: usize,
-    content: []const u8,
+    content: std.ArrayList(u8),
+    pub fn init(alloc: Alloc, size: usize) !Commit {
+        .{
+            .size = size,
+            .content = try std.ArrayList(u8).initCapacity(alloc, size),
+        };
+    }
+    pub fn setContent(self: *Commit, alloc: Alloc, content: []const u8) !void {
+        self.content.clearRetainingCapacity();
+        try self.content.appendSlice(alloc, content);
+    }
+    pub fn getContent(self: *Commit) []u8 {
+        return self.content.items;
+    }
+    pub fn deinit(self: *Commit, alloc: Alloc) void {
+        self.content.deinit(alloc);
+    }
 };
 const Tag = struct {
     size: usize,
-    content: []const u8,
+    content: std.ArrayList(u8),
+    pub fn init(alloc: Alloc, size: usize) !Tag {
+        .{
+            .size = size,
+            .content = try std.ArrayList(u8).initCapacity(alloc, size),
+        };
+    }
+    pub fn setContent(self: *Tag, alloc: Alloc, content: []const u8) !void {
+        self.content.clearRetainingCapacity();
+        try self.content.appendSlice(alloc, content);
+    }
+    pub fn getContent(self: *Tag) []u8 {
+        return self.content.items;
+    }
+    pub fn deinit(self: *Tag, alloc: Alloc) void {
+        self.content.deinit(alloc);
+    }
 };
 const FileType = enum {
     folder,
@@ -33,14 +81,43 @@ const FileType = enum {
 };
 
 const TreeContent = struct {
-    file_name: []const u8,
+    file_name: std.ArrayList(u8),
     file_mode: FileType,
-    binary_sha: []const u8,
+    binary_sha: std.ArrayList(u8),
+    pub fn init(alloc: Alloc, file_mode: FileType, file_name_size: usize) !TreeContent {
+        .{ .file_mode = file_mode, .file_name = try std.ArrayList(u8).initCapacity(alloc, file_name_size), .binary_sha = try std.ArrayList(u8).initCapacity(alloc, 40) };
+    }
+    pub fn setFileName(self: *TreeContent, alloc: Alloc, content: []const u8) !void {
+        self.file_name.clearRetainingCapacity();
+        try self.file_name.appendSlice(alloc, content);
+    }
+    pub fn getFileName(self: *TreeContent) []u8 {
+        return self.file_name.items;
+    }
+    pub fn setBinarySha(self: *TreeContent, alloc: Alloc, content: []const u8) !void {
+        self.binary_sha.clearRetainingCapacity();
+        try self.binary_sha.appendSlice(alloc, content);
+    }
+    pub fn getBinarySha(self: *TreeContent) []u8 {
+        return self.binary_sha.items;
+    }
+    pub fn deinit(self: *TreeContent, alloc: Alloc) void {
+        self.file_name.deinit(alloc);
+        self.binary_sha.deinit(alloc);
+    }
+    pub fn format(self: TreeContent, w: *std.Io.Writer) !void {
+        try w.print("\n{{\n file_name: {s}\n file_mode:{s}\n binary_sha:{s}\n}}\n", .{ self.file_name.items, @tagName(self.file_mode), self.binary_sha.items });
+    }
 };
 
 const Tree = struct {
     size: usize,
     contents: []TreeContent,
+    pub fn format(self: Tree, w: *std.Io.Writer) !void {
+        for (self.contents) |value| {
+            try w.print("{f}", .{value});
+        }
+    }
 };
 const ObjectType = enum {
     blob,
@@ -59,12 +136,14 @@ pub const Repo = struct {
     git_path: []const u8,
     blobs: StringHashMap(Blob),
     trees: StringHashMap(Tree),
+    objectTypeMap: StringHashMap(ObjectType),
 
     pub fn init(git_path: []const u8, alloc: Alloc) !Repo {
         return .{
             .git_path = git_path,
             .blobs = StringHashMap(Blob).init(alloc),
             .trees = StringHashMap(Tree).init(alloc),
+            .objectTypeMap = StringHashMap(ObjectType).init(alloc),
         };
     }
 
@@ -118,7 +197,8 @@ pub const Repo = struct {
                 },
             }
         }
-        // repo_log.info("stored {}", self.*);
+        repo_log.info("stored {f}", .{self.*});
+        std.debug.print("stored {f}", .{self.*});
     }
 
     fn storeObject(self: *Repo, object: Object, hash: []const u8) !void {
@@ -135,6 +215,15 @@ pub const Repo = struct {
             .tree => {
                 try self.trees.putNoClobber(hash, object.tree);
             },
+        }
+    }
+    pub fn format(self: Repo, w: *std.Io.Writer) !void {
+        var trees_it = self.trees.iterator();
+        try w.print("\nTrees contents\n", .{});
+        while (trees_it.next()) |tree| {
+            for (tree.value_ptr.contents) |content| {
+                try w.print("{f}\n", .{content});
+            }
         }
     }
 
@@ -161,9 +250,13 @@ fn parseDecompressedObject(reader: *std.Io.Reader, alloc: Alloc) !Object {
                 return error.InvalidObjectContent;
             };
             try testing.expectEqual(size, content.len);
+            var arr = try std.ArrayList(u8).initCapacity(alloc, content.len);
+            arr.appendSlice(alloc, content);
+            const blob = try Blob.init(alloc, size);
+            blob.setContent(alloc, content);
 
             object = .{
-                .blob = Blob{ .size = size, .content = content },
+                .blob = blob,
             };
         },
         .tree => {
@@ -238,11 +331,10 @@ fn parseTreeObject(reader: *std.Io.Reader, alloc: Alloc) !Tree {
         var decrypted_binary: [40]u8 = undefined;
         decrypted_binary = std.fmt.bytesToHex(encrypted_binary, .lower);
         repo_log.debug("decrypted bin {s}\n", .{decrypted_binary});
-        try tree_list.append(alloc, .{
-            .binary_sha = decrypted_binary[0..],
-            .file_mode = file_type,
-            .file_name = file_name,
-        });
+        var tree: TreeContent = TreeContent.init(alloc, file_type, file_name.len);
+        try tree.setFileName(alloc, file_name);
+        tree.setBinarySha(alloc, decrypted_binary);
+        try tree_list.append(alloc, tree);
     }
     return .{ .size = size, .contents = try tree_list.toOwnedSlice(alloc) };
 }
@@ -408,7 +500,6 @@ test "repo with unadded 2 test files" {
     repo.deinit();
 }
 test "repo with added 2 test files" {
-    testing.log_level = .debug;
     const testing_alloc = testing.allocator;
     var temp_dir = testing.tmpDir(.{ .iterate = true, .access_sub_paths = true });
     defer temp_dir.cleanup();
@@ -446,7 +537,6 @@ test "repo with added 2 test files" {
     repo.deinit();
 }
 test "repo with commited 2 test files" {
-    testing.log_level = .debug;
     const testing_alloc = testing.allocator;
     var temp_dir = testing.tmpDir(.{ .iterate = true, .access_sub_paths = true });
     defer temp_dir.cleanup();
@@ -495,8 +585,73 @@ test "repo with commited 2 test files" {
     try repo.parseRepoTrees(alloc);
     repo.deinit();
 }
+test "repo with commited individually 2 test files" {
+    const testing_alloc = testing.allocator;
+    var temp_dir = testing.tmpDir(.{ .iterate = true, .access_sub_paths = true });
+    defer temp_dir.cleanup();
+    const temp_path = try temp_dir.dir.realpathAlloc(testing_alloc, ".");
+    defer testing_alloc.free(temp_path);
+    // const argv = [_][]const u8{ "git", "-C", temp_path, "init" };
+    const argv = [_][]const u8{ "git", "init", "-q", temp_path };
+    var child = std.process.Child.init(&argv, testing_alloc);
+    try testRunProcess(&child);
+    for (1..3) |i| {
+        // Create File
+        repo_log.debug("index {d}", .{i});
+        const file_name = try std.fmt.allocPrint(testing_alloc, "test-{d}", .{i});
+        const file_content = try std.fmt.allocPrint(testing_alloc, "testing-{d}\n", .{i});
+        defer {
+            testing_alloc.free(file_name);
+            testing_alloc.free(file_content);
+        }
+        var file = try temp_dir.dir.createFile(file_name, .{});
+        // Write to File
+        _ = try file.write(file_content);
+        file.close();
+    }
+    const second_argv = [_][]const u8{ "git", "-C", temp_path, "add", "test-1" };
+    child = std.process.Child.init(&second_argv, testing_alloc);
+
+    try testRunProcess(&child);
+
+    var commit_argv = [_][]const u8{
+        "git",
+        "-C",
+        temp_path,
+        "commit",
+        "-m",
+        "\"Test first file commit\"",
+    };
+    child = std.process.Child.init(&commit_argv, testing_alloc);
+
+    try testRunProcess(&child);
+
+    const third_argv = [_][]const u8{ "git", "-C", temp_path, "add", "test-2" };
+    child = std.process.Child.init(&third_argv, testing_alloc);
+
+    try testRunProcess(&child);
+
+    commit_argv = [_][]const u8{
+        "git",
+        "-C",
+        temp_path,
+        "commit",
+        "-m",
+        "\"Test second file commit\"",
+    };
+    child = std.process.Child.init(&commit_argv, testing_alloc);
+    try testRunProcess(&child);
+
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+    const full_path = try std.fmt.allocPrint(alloc, "{s}/.git", .{temp_path});
+    var repo = try Repo.init(full_path, alloc);
+    try repo.parseRepoTrees(alloc);
+    repo.deinit();
+}
 test "repo with commited 2 test files and subfolder" {
-    testing.log_level = .debug;
+    testing.log_level = .info;
     const testing_alloc = testing.allocator;
     var temp_dir = testing.tmpDir(.{ .iterate = true, .access_sub_paths = true });
     defer temp_dir.cleanup();
