@@ -149,6 +149,8 @@ pub const Repo = struct {
 
     pub fn deinit(self: *Repo) void {
         self.blobs.deinit();
+        self.trees.deinit();
+        self.objectTypeMap.deinit();
     }
 
     pub fn parseRepoBlobs(self: *Repo, alloc: Alloc) !void {
@@ -189,7 +191,6 @@ pub const Repo = struct {
                     const object = try parseDecompressedObject(&parseReader, alloc);
                     const full_hash = try std.fmt.allocPrint(alloc, "{s}{s}", .{ dir_name, entry.basename });
                     repo_log.debug("hash - {s}\n", .{full_hash});
-                    defer alloc.free(full_hash);
                     try self.storeObject(object, full_hash);
                 },
                 else => {
