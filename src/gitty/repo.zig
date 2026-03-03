@@ -169,13 +169,16 @@ pub const Repo = struct {
         var dir = try std.fs.cwd().openDir(obj_path, .{ .iterate = true });
         var walker = try dir.walk(alloc);
         defer walker.deinit();
-        while (try walker.next()) |entry| {
+        dir_it: while (try walker.next()) |entry| {
             switch (entry.kind) {
                 .file => {
                     repo_log.debug("{s}: {s}\n", .{ entry.basename, @tagName(entry.kind) });
                     const parent_dir_path = try entry.dir.realpathAlloc(alloc, ".");
                     const dir_name = std.fs.path.basename(parent_dir_path);
                     defer alloc.free(dir_name);
+                    if (std.mem.eql(u8, dir_name, "pack") or std.mem.eql(u8, dir_name, "info")) {
+                        continue :dir_it;
+                    }
                     var f = try entry.dir.openFile(entry.basename, .{});
                     defer f.close();
                     const stat = try f.stat();

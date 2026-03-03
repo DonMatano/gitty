@@ -1,2 +1,1 @@
-pub const gitParser = @import("gitParser.zig");
-
+pub const RepoLib = @import("repo.zig");
