@@ -1,50 +1,48 @@
 # Gitty Project Overview
+*This doc is meant to be read by AI to give it an overview*
 
-**THIS DOC IS MADE TO BE READ BY AN AI AGENT**
+`gitty` is a Work-In-Progress (WIP) Git-core package written in Zig 0.15.2, designed to parse and interact with `.git` repository internals.
 
-`gitty` is a Work-In-Progress (WIP) git-core package written in Zig 0.15.2. It focuses on parsing the `.git` folder and its underlying object storage directly.
+## Core Goals
+- Provide a lightweight, Zig-native library for reading Git object databases.
+- Handle core Git objects (Blobs, Trees, Commits, Tags) directly from the `.git` folder.
+- Eventually support the full Git protocol and file formats (Packfiles, Refs, etc.).
 
-## Core Objectives
+## Current Status
+- **Parsing:** Successfully parses decompressed Git objects (Blobs and Trees) from `.git/objects`.
+- **Decompression:** Uses `std.compress.flate` for zlib decompression of Git objects.
+- **I/O:** Utilizes the new `std.Io` abstraction introduced in recent Zig versions.
+- **Objects:**
+    - `Blob`: Fully implemented (size and content).
+    - `Tree`: Fully implemented (file modes, names, and binary SHAs).
+    - `Commit`: Stubbed (recognized but content parsing not yet implemented).
+    - `Tag`: Stubbed (recognized but content parsing not yet implemented).
+- **Limitations:**
+    - Packfiles (`.git/objects/pack`) are currently skipped.
+    - Reference parsing (`.git/refs`) is not yet implemented.
+    - Writing/creating objects is not yet supported.
 
-- **Git Object Parsing**: Direct reading and decompression of git objects (blobs, commits, tags, and trees).
-- **Filesystem Interaction**: Efficiently traversing the `.git/objects` directory structure.
-- **Minimal Dependencies**: Leveraging the Zig standard library for all operations, including zlib decompression.
-
-## Project Structure
-
+## Architecture
 - `src/root.zig`: Library entry point.
-- `src/main.zig`: CLI executable entry point.
-- `src/gitty/`: Core module directory.
-    - `gitty.zig`: Module re-exports.
-    - `gitParser.zig`: Implementation of git object parsing logic, including decompression and data structure mapping.
-- `testGit/`: Contains sample git repositories used for integration testing.
-    - `emptyGit/`
-    - `singleCommit/`
-    - `singleUnCommit/`
+- `src/main.zig`: CLI entry point, primarily for debugging and testing the parser.
+- `src/gitty/repo.zig`: The core logic, containing the `Repo` struct and object parsing functions.
+- `src/gitty/gitty.zig`: Internal module exporter.
 
-## Key Implementation Details
+## Key Structures
+- `Repo`: Manages the repository state, including a path to the `.git` folder and hash maps for stored objects (Blobs, Trees, etc.).
+- `Object`: A tagged union representing the various Git object types.
+- `TreeContent`: Represents an entry in a Git tree (file/folder, mode, name, SHA).
 
-### Git Object Model
-The project defines a Zig `union(enum)` called `Object` to represent the four primary git object types:
-- `Blob`: Represents file contents.
-- `Commit`: Represents a snapshot of the repository.
-- `Tag`: Represents a named pointer to a commit.
-- `Tree`: Represents directory structures, linking filenames to their respective blobs or other trees.
+## Usage
+The CLI tool can be run against a `.git` folder to list its contents:
+```bash
+zig build run -- [path to .git folder]
+```
+If no path is provided, it attempts to open the `.git` folder in the current directory.
 
-### Parser Logic (`gitParser.zig`)
-- **Decompression**: Uses `std.compress.flate.Decompress` to handle the zlib-compressed format of git objects.
-- **Header Parsing**: Extracts object type and size information from the initial bytes of the decompressed data.
-- **Tree Parsing**: Implements the specialized binary format parsing required for git trees, which includes file modes, names, and binary SHA-1 hashes.
-
-## Build and Test
-
-The project uses the standard Zig build system.
-- `zig build`: Compiles the CLI tool.
-- `zig build test`: Runs the test suite, including integration tests against real `.git` data.
-
-## Future AI Client Guidance
-
-When working with this codebase, focus on:
-1. **Memory Management**: Ensure proper allocation and deallocation of buffers during decompression and parsing, following Zig's explicit allocator patterns.
-2. **Object Completeness**: Many object types are still in the early stages of implementation (e.g., `Commit` and `Tag` currently only capture raw content).
-3. **Error Handling**: The parser uses Zig's error union return types. Maintain this pattern for robust error reporting during repository traversal.
+## Testing
+Unit tests are available in `src/gitty/repo.zig` and can be run using:
+```bash
+zig build test
+```
+The tests include creating temporary Git repositories to verify the parser's behavior.
